@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "telemetry-eval"
+version = "0.1.0"
+description = "Behavioral evaluation layer for multi-tier AI agents — integration endpoint for Langfuse, Arize Phoenix, and LangSmith."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Muthaheera Yasmeena", email = "muthaheera@gmail.com" },
+]
+keywords = [
+    "llm",
+    "agents",
+    "evaluation",
+    "observability",
+    "opentelemetry",
+    "behavioral-drift",
+    "langfuse",
+    "arize-phoenix",
+    "langsmith",
+    "ropoll",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "scipy>=1.9.0",
+    "opentelemetry-api>=1.20.0",
+]
+
+[project.optional-dependencies]
+langfuse = ["langfuse>=2.0.0"]
+arize = ["arize-phoenix>=4.0.0", "openinference-instrumentation>=0.1.0", "pandas>=1.5.0"]
+langsmith = ["langsmith>=0.1.0"]
+all = [
+    "langfuse>=2.0.0",
+    "arize-phoenix>=4.0.0",
+    "openinference-instrumentation>=0.1.0",
+    "pandas>=1.5.0",
+    "langsmith>=0.1.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "numpy>=1.23.0",
+]
+notebooks = [
+    "jupyter>=1.0.0",
+    "matplotlib>=3.5.0",
+    "pandas>=1.5.0",
+    "numpy>=1.23.0",
+    "datasets>=2.0.0",  # for SWE-bench
+]
+
+[project.scripts]
+telemetry-eval-gate = "telemetry_eval.gate.release_gate:_cli"
+
+[project.urls]
+Homepage = "https://github.com/muthaheera/telemetry-eval"
+Paper = "https://www.amazon.science/publications/failing-agents-leave-traces-telemetry-signatures-for-multi-tier-agent-evaluation"
+Documentation = "https://github.com/muthaheera/telemetry-eval#readme"
+"Bug Tracker" = "https://github.com/muthaheera/telemetry-eval/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["telemetry_eval"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=telemetry_eval --cov-report=term-missing -v"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

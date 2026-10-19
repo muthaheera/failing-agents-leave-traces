@@ -1,0 +1,144 @@
+name: Behavioral Drift Gate
+
+# Blocks releases when behavioral drift is detected in agent traces.
+#
+# Based on: "Failing Agents Leave Traces: Telemetry Signatures for Multi-Tier Agent Evaluation"
+# Muthaheera Yasmeena — REALM Workshop, EMNLP 2026
+# https://www.amazon.science/publications/failing-agents-leave-traces-telemetry-signatures-for-multi-tier-agent-evaluation
+#
+# How it works:
+#   1. Your eval job collects agent traces and writes them as JSON
+#      (list of trace span lists) to baseline.json and candidate.json
+#   2. This gate reads both files, computes behavioral fingerprints,
+#      runs a KS test + bootstrap CI across 5 behavioral signals
+#   3. Exits 1 (blocks the release) if drift is detected at p < 0.001
+#
+# Setup:
+#   pip install telemetry-eval
+#   Generate baseline.json and candidate.json in your eval workflow step
+#   (see examples/otel_quickstart.py for the span format)
+
+on:
+  workflow_call:
+    inputs:
+      baseline-path:
+        description: "Path to baseline traces JSON file"
+        required: false
+        default: "eval/baseline_traces.json"
+        type: string
+      candidate-path:
+        description: "Path to candidate traces JSON file"
+        required: false
+        default: "eval/candidate_traces.json"
+        type: string
+      p-threshold:
+        description: "KS test p-value threshold (0.001 = production, 0.05 = dev)"
+        required: false
+        default: "0.001"
+        type: string
+      min-traces:
+        description: "Minimum traces required per set"
+        required: false
+        default: "10"
+        type: string
+    outputs:
+      gate-passed:
+        description: "true if no drift detected, false if release blocked"
+        value: ${{ jobs.drift-gate.outputs.gate_passed }}
+      drift-label:
+        description: "DRIFT_DETECTED or NO_DRIFT"
+        value: ${{ jobs.drift-gate.outputs.drift_label }}
+      drift-score:
+        description: "1.0 = no drift, 0.0 = drift"
+        value: ${{ jobs.drift-gate.outputs.drift_score }}
+
+  # Also run on PRs that modify agent logic
+  pull_request:
+    paths:
+      - "src/agents/**"
+      - "src/models/**"
+      - "eval/**"
+
+jobs:
+  drift-gate:
+    name: Behavioral Drift Gate
+    runs-on: ubuntu-latest
+    outputs:
+      gate_passed: ${{ steps.gate.outputs.gate_passed }}
+      drift_label: ${{ steps.gate.outputs.gate_label }}
+      drift_score: ${{ steps.gate.outputs.gate_score }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install telemetry-eval
+        run: pip install telemetry-eval
+
+      # ── Your eval step: replace this with your actual trace collection ──
+      # This step should write baseline_traces.json and candidate_traces.json.
+      # Format: list of trace span lists — see examples/otel_quickstart.py
+      - name: Collect agent traces
+        run: |
+          echo "Replace this step with your agent eval that collects traces."
+          echo "Write outputs to: ${{ inputs.baseline-path }} and ${{ inputs.candidate-path }}"
+          # Example: python eval/run_eval.py --baseline --output ${{ inputs.baseline-path }}
+          # Example: python eval/run_eval.py --candidate --output ${{ inputs.candidate-path }}
+
+      # ── Drift gate ──────────────────────────────────────────────────────
+      - name: Run behavioral drift gate
+        id: gate
+        run: |
+          python -m telemetry_eval.gate \
+            --baseline "${{ inputs.baseline-path || 'eval/baseline_traces.json' }}" \
+            --candidate "${{ inputs.candidate-path || 'eval/candidate_traces.json' }}" \
+            --p-threshold "${{ inputs.p-threshold || '0.001' }}" \
+            --min-traces "${{ inputs.min-traces || '10' }}" \
+            --output-json gate_result.json \
+            --github-output >> "$GITHUB_OUTPUT"
+        # Exits 1 if drift detected — fails this step and blocks the release
+
+      - name: Upload gate result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: behavioral-drift-gate-result
+          path: gate_result.json
+          retention-days: 30
+
+      - name: Comment on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## 🔬 Behavioral Drift Gate\n\n';
+            try {
+              const result = JSON.parse(fs.readFileSync('gate_result.json', 'utf8'));
+              const icon = result.passed ? '✅' : '🚫';
+              body += `**${icon} ${result.passed ? 'PASS' : 'BLOCKED'}**\n\n`;
+              body += `${result.reason}\n\n`;
+              if (result.drift && result.drift.signals) {
+                body += '| Signal | Status | Δ% |\n|--------|--------|----|\n';
+                for (const s of result.drift.signals) {
+                  const flag = s.drifted ? '⚠ DRIFT' : '✓ ok';
+                  body += `| \`${s.signal}\` | ${flag} | ${s.delta_pct !== undefined ? s.delta_pct.toFixed(1) + '%' : 'N/A'} |\n`;
+                }
+              }
+            } catch (e) {
+              body += '⚠ Could not read gate result.\n';
+            }
+            body += '\n---\n*[telemetry-eval](https://github.com/muthaheera/telemetry-eval) · ';
+            body += '[Paper](https://www.amazon.science/publications/failing-agents-leave-traces-telemetry-signatures-for-multi-tier-agent-evaluation)*';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
